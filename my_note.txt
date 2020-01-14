@@ -1,0 +1,2 @@
+# installed message_filters to ROS kinetic
+sudo apt-get install message_filters
