@@ -6,28 +6,42 @@ import rospy
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from tracker.msg import BoundingBoxes
+from functions import IOU
 
 def callback(box, image):
 	# initialize at the first time, then tracking
+	global tracker_number
 	global key
-	print("debug1")
+	global bbox
+	print("initialize tracker", key)
+	xmin = box.bounding_boxes[0].xmin
+	xmax = box.bounding_boxes[0].xmax
+	ymin = box.bounding_boxes[0].ymin
+	ymax = box.bounding_boxes[0].ymax
+	bbox_init = (xmin, ymin, xmax-xmin, ymax-ymin)
+	xmin2 = bbox[0]
+	ymin2 = bbox[0] + bbox[2]
+	xmax2 = bbox[1]
+	ymax2 = bbox[1] + bbox[3]
+	iou = IOU(xmin, ymin, xmax, ymax, xmin2, ymin2, xmax2, ymax2)
+	if iou < 0.5:
+		key = 0
+
 	if key == 0:
-		xmin = box.bounding_boxes[0].xmin
-		xmax = box.bounding_boxes[0].xmax
-		ymin = box.bounding_boxes[0].ymin
-		ymax = box.bounding_boxes[0].ymax
-		bbox = (xmin, ymin, xmax-xmin, ymax-ymin)
 		cv_image = bridge.imgmsg_to_cv2(image, "bgr8")
+		print('bbox')
+		print(bbox_init)
 		global tracker
-		ok = tracker.init(cv_image, bbox)
-		key += 1
+		tracker = tracker_setup(tracker_number)
+		ok = tracker.init(cv_image, bbox_init)
+		key = 1
 
 
 def callback_track(image):
 	global key
-	print("debug2")
+	global tracker
+	global bbox
 	if key > 0:
-		global tracker
 		cv_image = bridge.imgmsg_to_cv2(image, "bgr8")
 
 		# Start timer
@@ -43,16 +57,21 @@ def callback_track(image):
 		pub.publish(ros_image)
 		time_total = cv2.getTickCount() - timer;
 		print('tracking:', key)
-		print('time_tracking:', time_spent)
-		print('time_total:', time_total)
+		#print('time_tracking:', time_spent)
+		#print('time_total:', time_total)
 		key += 1
+		
+		# terminate tracking after key frames
+		if key > 100:
+			key = 0
+			
 
 
-def tracker_setup():
+def tracker_setup(number):
 	# Set up tracker.
     # Instead of MIL, you can also use
 	tracker_types = ['BOOSTING', 'MIL','KCF', 'TLD', 'MEDIANFLOW', 'GOTURN', 'MOSSE', 'CSRT']
-	tracker_type = tracker_types[4]
+	tracker_type = tracker_types[number]
 
 	if tracker_type == 'BOOSTING':
 		tracker = cv2.TrackerBoosting_create()
@@ -74,16 +93,15 @@ def tracker_setup():
 	return tracker
 
 def listener():
-	try:
-		box_sub = message_filters.Subscriber('/darknet_ros/bounding_boxes', BoundingBoxes, queue_size=1)
-		#image_sub = message_filters.Subscriber('/usb_cam/image_raw', Image, queue_size=None)
-		## playing rosbag
-		image_sub = message_filters.Subscriber('/image_raw', Image, queue_size=1)
 
-		ts = message_filters.ApproximateTimeSynchronizer([box_sub, image_sub], 3, 0.1)
-		ts.registerCallback(callback)
-	except:
-		pass
+	box_sub = message_filters.Subscriber('/darknet_ros/bounding_boxes', BoundingBoxes, queue_size=None)
+	#image_sub = message_filters.Subscriber('/usb_cam/image_raw', Image, queue_size=None)
+	## playing rosbag
+	image_sub = message_filters.Subscriber('/image_raw', Image, queue_size=None)
+
+	ts = message_filters.ApproximateTimeSynchronizer([box_sub, image_sub], 3, 0.1)
+	ts.registerCallback(callback)
+
 	## tracking
 	## playing rosbag
 	rospy.Subscriber("/image_raw", Image, callback_track, queue_size=1, buff_size=2**24)
@@ -94,7 +112,8 @@ if __name__ == '__main__' :
 	rospy.init_node('drone_tracker_node', anonymous=True)
 	pub = rospy.Publisher('/track_drone/image', Image, queue_size=1)
 	print("init drone_tracker_node")
+	bbox = [0,0,0,0]
 	key = 0
-	tracker = tracker_setup()
+	tracker_number = 4
 	listener()
 	

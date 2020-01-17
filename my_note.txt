@@ -1,2 +1,6 @@
-# installed message_filters to ROS kinetic
-sudo apt-get install message_filters
+# synchronize rosbag time
+rosparam set use_sim_time true
+rosbag play xxxx.bag --clock
+
+
+
